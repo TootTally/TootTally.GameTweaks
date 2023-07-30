@@ -8,7 +8,7 @@ using TootTally.Utils;
 using TootTally.Utils.TootTallySettings;
 using UnityEngine;
 
-namespace TootTally.ModuleTemplate
+namespace TootTally.GameTweaks
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     [BepInDependency("TootTally", BepInDependency.DependencyFlags.HardDependency)]
@@ -16,7 +16,7 @@ namespace TootTally.ModuleTemplate
     {
         public static Plugin Instance;
 
-        private const string CONFIG_NAME = "ModuleTemplate.cfg";
+        private const string CONFIG_NAME = "GameTweaks.cfg";
         public Options option;
         public ConfigEntry<bool> ModuleConfigEnabled { get; set; }
         public bool IsConfigInitialized { get; set; }
@@ -39,7 +39,7 @@ namespace TootTally.ModuleTemplate
         private void TryInitialize()
         {
             // Bind to the TTModules Config for TootTally
-            ModuleConfigEnabled = TootTally.Plugin.Instance.Config.Bind("Modules", "ModuleTemplate", true, "<insert module description here>");
+            ModuleConfigEnabled = TootTally.Plugin.Instance.Config.Bind("Modules", "GameTweaks", true, "Game Tweaks with some quality of life changes.");
             TootTally.Plugin.AddModule(this);
         }
 
@@ -49,19 +49,15 @@ namespace TootTally.ModuleTemplate
             ConfigFile config = new ConfigFile(configPath + CONFIG_NAME, true);
             option = new Options()
             {
-                // Set your config here by binding them to the related ConfigEntry in your Options class
-                // Example:
-                // Unlimited = config.Bind(CONFIG_FIELD, "Unlimited", DEFAULT_UNLISETTING)
+                ChampMeterSize = config.Bind("General", "ChampMeterSize", 1f, "Resize the champ meter to make it less intrusive."),
+                SyncDuringSong = config.Bind("General", "Sync During Song", false, "Allow the game to sync during a song, may cause lags but prevent desyncs.")
             };
 
-            settingPage = TootTallySettingsManager.AddNewPage("ModulePageName", "HeaderText", 40f, new Color(0,0,0,0));
-            if (settingPage != null) {
-                // Use TootTallySettingPage functions to add your objects to TootTallySetting
-                // Example:
-                // page.AddToggle(name, option.Unlimited);
-            }
+            settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0,0,0,0));
+            settingPage?.AddSlider("ChampMeterSize", 0, 1, option.ChampMeterSize, false);
+            settingPage?.AddToggle("SyncDuringSong", option.SyncDuringSong);
 
-            Harmony.CreateAndPatchAll(typeof(ModuleTemplatePatches), PluginInfo.PLUGIN_GUID);
+            Harmony.CreateAndPatchAll(typeof(GameTweaks), PluginInfo.PLUGIN_GUID);
             LogInfo($"Module loaded!");
         }
 
@@ -72,16 +68,46 @@ namespace TootTally.ModuleTemplate
             LogInfo($"Module unloaded!");
         }
 
-        public static class ModuleTemplatePatches
+        public static class GameTweaks
         {
-            // Apply your Trombone Champ patches here
+            public static bool _hasSyncedOnce;
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Start))]
+            [HarmonyPostfix]
+            public static void FixChampMeterSize(GameController __instance)
+            {
+                if (Instance.option.ChampMeterSize.Value == 1f) return;
+                //0.29f is the default localScale size
+                __instance.champcontroller.letters[0].transform.parent.localScale = Vector2.one * 0.29f * Instance.option.ChampMeterSize.Value; // :skull: that's how the base game gets that object...
+                __instance.healthmask.transform.parent.SetParent(__instance.champcontroller.letters[0].transform.parent, true);
+                __instance.healthmask.transform.parent.localScale = Vector2.one * Instance.option.ChampMeterSize.Value;
+            }
+
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.startSong))]
+            [HarmonyPostfix]
+            public static void ResetSyncFlag()
+            {
+                _hasSyncedOnce = false;
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.syncTrackPositions))]
+            [HarmonyPrefix]
+            public static bool SyncOnlyOnce()
+            {
+                if (Instance.option.SyncDuringSong.Value) return true; //always sync if enabled
+                if (Replays.ReplaySystemManager.wasPlayingReplay) return true; //always sync if watching replay
+
+                var previousSync = _hasSyncedOnce;
+                _hasSyncedOnce = true;
+                return !previousSync;
+            }
         }
 
         public class Options
         {
-            // Fill this class up with ConfigEntry objects that define your configs
-            // Example:
-            // public ConfigEntry<bool> Unlimited { get; set; }
+            public ConfigEntry<float> ChampMeterSize { get; set; }
+            public ConfigEntry<bool> SyncDuringSong { get; set; }
         }
     }
 }
