@@ -34,7 +34,7 @@ namespace TootTally.GameTweaks
         {
             if (Instance != null) return;
             Instance = this;
-            
+
             GameInitializationEvent.Register(Info, TryInitialize);
         }
 
@@ -57,10 +57,10 @@ namespace TootTally.GameTweaks
                 TouchScreenMode = config.Bind("Misc", "TouchScreenMode", false, "Tweaks for touchscreen users.")
             };
 
-            settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0,0,0,0));
+            settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
             settingPage?.AddSlider("ChampMeterSize", 0, 1, option.ChampMeterSize, false);
             settingPage?.AddToggle("SyncDuringSong", option.SyncDuringSong);
-            settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode);
+            settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
 
             Harmony.CreateAndPatchAll(typeof(GameTweaks), PluginInfo.PLUGIN_GUID);
             LogInfo($"Module loaded!");
@@ -98,7 +98,7 @@ namespace TootTally.GameTweaks
                 gameplayCanvas.GetComponent<GraphicRaycaster>().enabled = true;
                 gameplayCanvas.transform.Find("GameSpace").transform.localScale = new Vector2(1, -1);
                 var button = GameObjectFactory.CreateCustomButton(gameplayCanvas.transform, Vector2.zero, new Vector2(32, 32), AssetManager.GetSprite("Block64.png"), "PauseButton", delegate { OnPauseButtonPress(__instance); });
-                button.transform.position = new Vector3(-7.95f, 4.75f,1f);
+                button.transform.position = new Vector3(-7.95f, 4.75f, 1f);
             }
 
             //Yoinked from DNSpy 
