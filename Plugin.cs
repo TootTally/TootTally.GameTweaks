@@ -54,11 +54,13 @@ namespace TootTally.GameTweaks
                 ChampMeterSize = config.Bind("General", "ChampMeterSize", 1f, "Resize the champ meter to make it less intrusive."),
                 SyncDuringSong = config.Bind("General", "Sync During Song", false, "Allow the game to sync during a song, may cause lags but prevent desyncs."),
                 RandomizeKey = config.Bind("General", "RandomizeKey", KeyCode.F5, "Press that key to randomize."),
+                MuteButtonTransparency = config.Bind("General", "MuteBtnAlpha", .25f, "Change the transparency of the mute button"),
                 TouchScreenMode = config.Bind("Misc", "TouchScreenMode", false, "Tweaks for touchscreen users.")
             };
 
             settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
             settingPage?.AddSlider("ChampMeterSize", 0, 1, option.ChampMeterSize, false);
+            settingPage?.AddSlider("MuteBtnAlpha", 0, 1, option.MuteButtonTransparency, false);
             settingPage?.AddToggle("SyncDuringSong", option.SyncDuringSong);
             settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
 
@@ -99,6 +101,21 @@ namespace TootTally.GameTweaks
                 gameplayCanvas.transform.Find("GameSpace").transform.localScale = new Vector2(1, -1);
                 var button = GameObjectFactory.CreateCustomButton(gameplayCanvas.transform, Vector2.zero, new Vector2(32, 32), AssetManager.GetSprite("Block64.png"), "PauseButton", delegate { OnPauseButtonPress(__instance); });
                 button.transform.position = new Vector3(-7.95f, 4.75f, 1f);
+            }
+
+
+            [HarmonyPatch(typeof(MuteBtn), nameof(MuteBtn.Start))]
+            [HarmonyPostfix]
+            public static void SetMuteButtonAlphaOnStart(MuteBtn __instance)
+            {
+                __instance.cg.alpha = Instance.option.MuteButtonTransparency.Value;
+            }
+
+            [HarmonyPatch(typeof(MuteBtn), nameof(MuteBtn.hoverOut))]
+            [HarmonyPostfix]
+            public static void UnMuteButtonHoverOut(MuteBtn __instance)
+            {
+                __instance.cg.alpha = Instance.option.MuteButtonTransparency.Value;
             }
 
             //Yoinked from DNSpy 
@@ -152,6 +169,7 @@ namespace TootTally.GameTweaks
         public class Options
         {
             public ConfigEntry<float> ChampMeterSize { get; set; }
+            public ConfigEntry<float> MuteButtonTransparency { get; set; }
             public ConfigEntry<bool> SyncDuringSong { get; set; }
             public ConfigEntry<KeyCode> RandomizeKey { get; set; }
 
