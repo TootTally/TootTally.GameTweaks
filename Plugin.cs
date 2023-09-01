@@ -172,7 +172,19 @@ namespace TootTally.GameTweaks
             [HarmonyPrefix]
             public static bool OverwriteGameLoop(GameController __instance)
             {
-                if (!Instance.option.OptimizeGameLoop.Value && !__instance.freeplay && !__instance.playingineditor && GlobalVariables.localsettings.acc_autotoot) return true;
+                if (!Instance.option.OptimizeGameLoop.Value || !__instance.freeplay || !__instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
+
+                #region MultiplierTextStuff
+                if (__instance.multtexthide > -1f)
+                {
+                    __instance.multtexthide += 1f * Time.deltaTime;
+                    if (__instance.multtexthide > 1.5f)
+                    {
+                        __instance.multtexthide = -1f;
+                        __instance.hideMultText();
+                    }
+                }
+                #endregion
 
                 #region HealthMovementStuff
                 float num4 = __instance.healthfill.transform.localPosition.x + ((-4.4f + __instance.currenthealth * 0.0368f - __instance.healthfill.transform.localPosition.x) * (6.85f * Time.deltaTime));
@@ -312,13 +324,14 @@ namespace TootTally.GameTweaks
                 __instance.notebuttonpressed = __instance.isNoteButtonPressed() && !GlobalVariables.localsettings.acc_autotoot;
                 #endregion
 
-                //This just updates the counter, usually every 0.01s but now every frame
+                #region TallyScoreTimer
                 __instance.scorecounter += Time.deltaTime;
                 if (__instance.scorecounter > 0.01f)
                 {
                     __instance.scorecounter = 0;
                     __instance.tallyScore();
                 }
+                #endregion
 
                 #region TimeCheck
                 float currentPosition = __instance.noteholderr.anchoredPosition3D.x - __instance.zeroxpos;
@@ -520,13 +533,13 @@ namespace TootTally.GameTweaks
             [HarmonyPrefix]
             public static bool OverwriteTallyScore(GameController __instance)
             {
-                if (!Instance.option.OptimizeGameLoop.Value && !__instance.freeplay && !__instance.playingineditor && GlobalVariables.localsettings.acc_autotoot) return true;
+                if (!Instance.option.OptimizeGameLoop.Value || !__instance.freeplay || !__instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
 
                 if (__instance.currentscore <= __instance.totalscore)
                 {
-                    var text = __instance.currentscore.ToString("n0");
-                    var diff = (int)(Math.Max(2000, __instance.totalscore - __instance.currentscore) * 100f * Time.deltaTime);
+                    var diff = (int)((__instance.totalscore - __instance.currentscore) * 80f * Time.deltaTime) + 160;
                     __instance.currentscore = __instance.currentscore + diff < __instance.totalscore ? __instance.currentscore + diff : __instance.totalscore;
+                    var text = __instance.currentscore.ToString("n0");
                     __instance.ui_score.text = text;
                     __instance.ui_score_shadow.text = text;
                 }
