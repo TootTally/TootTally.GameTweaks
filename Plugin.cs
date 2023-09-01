@@ -366,10 +366,9 @@ namespace TootTally.GameTweaks
                             __instance.notescoretotal += frameScore;
                         }
 
+                        __instance.notescoresamples += frameScore <= 0f ? 0.2f : 1f;
                         if (__instance.notescoresamples <= 0f)
                             __instance.notescoresamples = frameScore <= 0f ? 0.2f : 1f;
-                        else
-                            __instance.notescoresamples += frameScore <= 0f ? 0.2f : 1f;
 
                         __instance.notescoreaverage = __instance.notescoretotal / __instance.notescoresamples;
                     }
