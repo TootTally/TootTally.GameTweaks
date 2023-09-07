@@ -3,6 +3,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
+using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using TootTally.Graphics;
@@ -54,21 +55,43 @@ namespace TootTally.GameTweaks
             {
                 ChampMeterSize = config.Bind("General", "ChampMeterSize", 1f, "Resize the champ meter to make it less intrusive."),
                 SyncDuringSong = config.Bind("General", "Sync During Song", false, "Allow the game to sync during a song, may cause lags but prevent desyncs."),
-                OptimizeGameLoop = config.Bind("General", "Optimize Game Lopp", false, "Rewrite the entire gameloop to increase framerate."),
+                OptimizeGameLoop = config.Bind("General", "Optimize Game Loop", false, "Rewrite the entire gameloop to increase framerate."),
+                HideTromboner = config.Bind("General", "Hide Tromboner", false, "Hide the Tromboner during gameplay."),
                 RandomizeKey = config.Bind("General", "RandomizeKey", KeyCode.F5, "Press that key to randomize."),
-                MuteButtonTransparency = config.Bind("General", "MuteBtnAlpha", .25f, "Change the transparency of the mute button"),
-                TouchScreenMode = config.Bind("Misc", "TouchScreenMode", false, "Tweaks for touchscreen users.")
+                MuteButtonTransparency = config.Bind("General", "MuteBtnAlpha", .25f, "Change the transparency of the mute button."),
+                TouchScreenMode = config.Bind("Misc", "TouchScreenMode", false, "Tweaks for touchscreen users."),
+                OverwriteNoteSpacing = config.Bind("Misc", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
+                NoteSpacing = config.Bind("Misc", "NoteSpacing", 280.ToString(), "Note Spacing Value")
             };
 
             settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
             settingPage?.AddSlider("ChampMeterSize", 0, 1, option.ChampMeterSize, false);
             settingPage?.AddSlider("MuteBtnAlpha", 0, 1, option.MuteButtonTransparency, false);
+            settingPage?.AddToggle("HideTromboner", option.HideTromboner);
             settingPage?.AddToggle("SyncDuringSong", option.SyncDuringSong);
             settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
             settingPage?.AddToggle("OptimizingGameLoop", option.OptimizeGameLoop);
+            settingPage?.AddToggle("OverwriteNoteSpacing", option.OverwriteNoteSpacing, OnOverwriteNoteSpacingToggle);
+            OnOverwriteNoteSpacingToggle(option.OverwriteNoteSpacing.Value);
 
             Harmony.CreateAndPatchAll(typeof(GameTweaks), PluginInfo.PLUGIN_GUID);
             LogInfo($"Module loaded!");
+        }
+
+        public void OnOverwriteNoteSpacingToggle(bool value)
+        {
+            if (value)
+                settingPage?.AddTextField("NoteSpacing", option.NoteSpacing.Value, false, OnNoteSpacingSubmit);
+            else
+                settingPage?.RemoveSettingObjectFromList("NoteSpacing");
+        }
+
+        public void OnNoteSpacingSubmit(string value)
+        {
+            if (int.TryParse(value, out var num) && num > 0)
+                option.NoteSpacing.Value = num.ToString();
+            else
+                PopUpNotifManager.DisplayNotif("Value has to be a positive integer.");
         }
 
         public void UnloadModule()
@@ -105,7 +128,23 @@ namespace TootTally.GameTweaks
                 var button = GameObjectFactory.CreateCustomButton(gameplayCanvas.transform, Vector2.zero, new Vector2(32, 32), AssetManager.GetSprite("Block64.png"), "PauseButton", delegate { OnPauseButtonPress(__instance); });
                 button.transform.position = new Vector3(-7.95f, 4.75f, 1f);
             }
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Start))]
+            [HarmonyPostfix]
+            public static void HideTromboner(GameController __instance)
+            {
+                if (!Instance.option.HideTromboner.Value) return;
+                __instance.puppet_human.SetActive(false);
+            }
 
+            [HarmonyPatch(typeof(GameController), nameof(GameController.buildNotes))]
+            [HarmonyPrefix]
+            public static void OverwriteNoteSpacing(GameController __instance)
+            {
+                if (!Instance.option.OverwriteNoteSpacing.Value) return;
+                if (int.TryParse(Instance.option.NoteSpacing.Value, out var num) && num > 0)
+                    __instance.defaultnotelength = (int)(100f / __instance.tempo * num * GlobalVariables.gamescrollspeed);
+
+            }
 
             [HarmonyPatch(typeof(MuteBtn), nameof(MuteBtn.Start))]
             [HarmonyPostfix]
@@ -168,11 +207,12 @@ namespace TootTally.GameTweaks
                     __instance.clickRandomTrack();
             }
 
+            /*
             [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
             [HarmonyPrefix]
             public static bool OverwriteGameLoop(GameController __instance)
             {
-                if (!Instance.option.OptimizeGameLoop.Value || !__instance.freeplay || !__instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
+                if (!Instance.option.OptimizeGameLoop.Value || __instance.freeplay || __instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
 
                 #region MultiplierTextStuff
                 if (__instance.multtexthide > -1f)
@@ -366,9 +406,9 @@ namespace TootTally.GameTweaks
                             __instance.notescoretotal += frameScore;
                         }
 
-                        __instance.notescoresamples += frameScore <= 0f ? 0.2f : 1f;
+                        __instance.notescoresamples += frameScore <= 0f ? 0.22f : 1f;
                         if (__instance.notescoresamples <= 0f)
-                            __instance.notescoresamples = frameScore <= 0f ? 0.2f : 1f;
+                            __instance.notescoresamples = frameScore <= 0f ? 0.22f : 1f;
 
                         __instance.notescoreaverage = __instance.notescoretotal / __instance.notescoresamples;
                     }
@@ -378,6 +418,10 @@ namespace TootTally.GameTweaks
                     __instance.noteactive = currentPosition > __instance.currentnotestart;
                     if (!__instance.released_button_between_notes && !__instance.notebuttonpressed)
                         __instance.released_button_between_notes = true;
+                    else if (__instance.released_button_during_note == 0 && __instance.notebuttonpressed)
+                        __instance.released_button_during_note = 1;
+                    else if (__instance.released_button_during_note == 1 && !__instance.notebuttonpressed)
+                        __instance.released_button_during_note = 2;
                 }
                 #endregion
 
@@ -526,7 +570,481 @@ namespace TootTally.GameTweaks
                 #endregion
 
                 return false;
+            }*/
+
+            static Vector3 defaultVector = new Vector3(1, 0, 0);
+            static float musicLength;
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Start))]
+            [HarmonyPostfix]
+            public static void SetClipLength(GameController __instance)
+            {
+                if (!Instance.option.OptimizeGameLoop.Value || __instance.freeplay || __instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return;
+                musicLength = __instance.musictrack.clip.length;
+                GameObject.DestroyImmediate(__instance.editorcanvas);
             }
+
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
+            [HarmonyPrefix]
+            public static bool OverwriteGameLoopModified(GameController __instance)
+            {
+                if (!Instance.option.OptimizeGameLoop.Value || __instance.freeplay || __instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
+
+                // ~0.0001ms
+                #region Keypress
+                __instance.notebuttonpressed = __instance.isNoteButtonPressed();
+                #endregion
+
+                // ~0.0001ms
+                #region TootingHandle
+                if (__instance.notebuttonpressed && !__instance.noteplaying && !__instance.outofbreath && __instance.readytoplay)
+                {
+                    __instance.noteplaying = true;
+                    __instance.setPuppetShake(true);
+                    __instance.currentnotesound.time = 0f;
+                    __instance.trombvol_current = __instance.trombvol_default;
+                    __instance.currentnotesound.volume = __instance.trombvol_current;
+                    __instance.playNote();
+                }
+                else if (!__instance.notebuttonpressed && __instance.noteplaying)
+                {
+                    __instance.noteplaying = false;
+                    __instance.setPuppetShake(false);
+                }
+                #endregion
+
+                // ~0.0001ms
+                #region MultiplierTextStuff
+                if (__instance.multtexthide > -1f)
+                {
+                    __instance.multtexthide += 1f * Time.deltaTime;
+                    if (__instance.multtexthide > 1.5f)
+                    {
+                        __instance.multtexthide = -1f;
+                        __instance.hideMultText();
+                    }
+                }
+                #endregion
+
+                // ~0.0008ms
+                #region HealthMovementStuff
+                float num4 = __instance.healthfill.transform.localPosition.x + ((-4.4f + __instance.currenthealth * 0.0368f - __instance.healthfill.transform.localPosition.x) * (6.85f * Time.deltaTime));
+                __instance.healthfill.transform.localPosition = new Vector3(num4, __instance.healthposy, 0f);
+                __instance.healthposy = __instance.healthposy > 3.08f ? -2 : __instance.healthposy + 13.5f * Time.deltaTime;
+                #endregion
+
+                // ~0.9 - 1.1ms
+                #region NoteScrollingAndSomeOtherShit
+                float musicTime = __instance.musictrack.time;
+                float currentTiming = musicTime - __instance.latency_offset - __instance.noteoffset;
+                float noteHolderPosX = __instance.noteholderr.anchoredPosition3D.x;
+                float beatlinesPosX = __instance.allbeatlines[__instance.beatlineindex].anchoredPosition3D.x;
+
+                #region SongEndingAndTimerUpdate
+                if (musicTime > __instance.levelendtime)
+                {
+                    if (__instance.levelendtime > 0f && !__instance.level_finished && !__instance.quitting)
+                    {
+                        __instance.level_finished = true;
+                        __instance.curtainc.closeCurtain(true);
+                        if (__instance.totalscore < 0)
+                            __instance.totalscore = 0;
+                        GlobalVariables.gameplay_scoretotal = __instance.totalscore;
+                        GlobalVariables.gameplay_scoreperc = (float)__instance.totalscore / __instance.maxlevelscore;
+                        GlobalVariables.gameplay_notescores = new int[]
+                        {
+                            __instance.scores_F,
+                            __instance.scores_D,
+                            __instance.scores_C,
+                            __instance.scores_B,
+                            __instance.scores_A
+                        };
+                    }
+                }
+                else
+                    __instance.updateTimeCounter(currentTiming);
+                #endregion
+
+                #region BeatTickStuff
+                if (musicTime > __instance.tempotimer)
+                {
+                    __instance.tempotimer = 60f / __instance.tempo * (__instance.beatnum + 1);
+                    __instance.beatnum++;
+                    __instance.timesigcount++;
+                    if (__instance.timesigcount > __instance.beatspermeasure)
+                    {
+                        __instance.timesigcount = 1;
+                        __instance.bgcontroller.tickbg();
+                        if (__instance.beatspermeasure == 3)
+                            __instance.flashLeftBounds();
+                    }
+                    if (__instance.beatspermeasure != 3)
+                        __instance.flashLeftBounds();
+
+                    __instance.breathscale = __instance.breathscale == 1f ? 0.75f : 1f;
+                }
+
+                if (musicTime > __instance.tempotimerdot)
+                {
+                    __instance.beatnumdot++;
+                    __instance.tempotimerdot = 60f / (__instance.tempo * 4f) * __instance.beatnumdot;
+                    __instance.animatePlayerDot();
+                }
+                #endregion
+
+                #region Scrolling
+                if (!__instance.paused)
+                {
+                    //find a way to simplify `__instance.musictrack.time < __instance.musictrack.clip.length`
+                    if (!__instance.smooth_scrolling && musicTime < musicLength)
+                        __instance.noteholderr.anchoredPosition3D = new Vector3(__instance.zeroxpos + currentTiming * -__instance.trackmovemult, 0f, 0f);
+                    else if (__instance.smooth_scrolling && musicTime > 0f)
+                        __instance.noteholderr.anchoredPosition3D = new Vector3(noteHolderPosX - Time.deltaTime * __instance.trackmovemult * __instance.smooth_scrolling_move_mult * __instance.smooth_scrolling_mod_mult, 0f, 0f);
+
+                    if (__instance.lyricdata_txt.Count > 0)
+                        __instance.lyricsholderr.anchoredPosition3D = __instance.noteholderr.anchoredPosition3D;
+                }
+                #endregion
+
+                #region BeatLinePositioningImNotSure??
+                if (noteHolderPosX - __instance.zeroxpos + beatlinesPosX < 0f)
+                {
+                    if (__instance.smooth_scrolling && musicTime < musicLength && Mathf.Abs(noteHolderPosX - (__instance.zeroxpos + currentTiming * -__instance.trackmovemult)) >= 12f)
+                        __instance.syncTrackPositions(currentTiming);
+                    __instance.maxbeatlinex += __instance.defaultnotelength * __instance.beatspermeasure;
+                    __instance.allbeatlines[__instance.beatlineindex].anchoredPosition3D = defaultVector * __instance.maxbeatlinex;
+                    __instance.beatlineindex = ++__instance.beatlineindex >= __instance.numbeatlines ? 0 : __instance.beatlineindex;
+                }
+                #endregion
+
+                #region BGCheck
+                if (__instance.bgindex < __instance.bgdata.Count && currentTiming > __instance.bgdata[__instance.bgindex][0])
+                {
+                    __instance.bgcontroller.bgMove((int)__instance.bgdata[__instance.bgindex][1]);
+                    __instance.bgindex++;
+                }
+                #endregion
+
+                #region ImprovZoneChecks
+                if (__instance.improv_zones != null && __instance.improv_zones.Count > 0)
+                {
+                    var noteHolderPos = Math.Abs(noteHolderPosX);
+                    var zoneData = __instance.improv_zone_data[__instance.current_improv_zone];
+
+                    if (!__instance.improv_zone_active && noteHolderPos > zoneData[0])
+                    {
+                        __instance.improv_zone_active = true;
+                        __instance.improv_zone_text.transform.localScale = new Vector3(0.001f, 0.001f, 1f);
+                        __instance.improv_zone_text.SetActive(true);
+                        LeanTween.scale(__instance.improv_zone_text, new Vector3(1f, 1f, 1f), 0.1f).setEaseOutBack().setOnComplete(delegate ()
+                        {
+                            LeanTween.scale(__instance.improv_zone_text, new Vector3(0.9f, 0.9f, 1f), 60f / __instance.tempo).setEaseInOutQuad().setLoopPingPong();
+                        });
+                    }
+                    else if (__instance.improv_zone_active && noteHolderPos > zoneData[1])
+                    {
+                        __instance.improv_zone_active = false;
+                        LeanTween.cancel(__instance.improv_zone_text);
+                        LeanTween.scale(__instance.improv_zone_text, new Vector3(0.9f, 0.001f, 1f), 0.25f).setEaseInQuart().setOnComplete(delegate ()
+                        {
+                            __instance.improv_zone_text.SetActive(false);
+                        });
+                        __instance.hideImprovZone(__instance.improv_zone_to_hide);
+                        __instance.improv_zone_to_hide = __instance.improv_zone_data.Count > ++__instance.current_improv_zone + 1 ? __instance.improv_zone_objects[__instance.current_improv_zone] : null;
+                        if (__instance.improv_zone_to_hide == null)
+                            __instance.improv_zones = null;
+                    }
+                }
+                #endregion
+
+                #endregion
+
+                // ~0.0001ms
+                #region VolumeControl
+                if (!__instance.paused)
+                {
+                    if (Input.GetKeyDown(KeyCode.Minus))
+                        __instance.adjustTrackVolume(-1f);
+                    else if (Input.GetKeyDown(KeyCode.Minus))
+                        __instance.adjustTrackVolume(1f);
+                }
+                #endregion
+
+                // ~0.0002ms
+                #region TallyScoreTimer
+                __instance.scorecounter += Time.deltaTime;
+                if (__instance.scorecounter > 0.01f)
+                {
+                    __instance.scorecounter = 0;
+                    __instance.tallyScore();
+                }
+                #endregion
+
+                // ~0.0001ms
+                #region NoteScoringAndNoteActive
+                if (__instance.noteactive)
+                {
+                    if (__instance.released_button_during_note == 0 && __instance.notebuttonpressed)
+                        __instance.released_button_during_note = 1;
+                    else if (__instance.released_button_during_note == 1 && !__instance.notebuttonpressed)
+                        __instance.released_button_during_note = 2;
+                    if (currentTiming > __instance.currentnoteend && __instance.notescoresamples > 0f)
+                    {
+                        __instance.activateNextNote(__instance.currentnoteindex);
+                        __instance.note_end_timer = __instance.max_note_end_timer;
+                        __instance.noteactive = false;
+                        __instance.getScoreAverage();
+                        __instance.grabNoteRefs(1);
+                    }
+                    else
+                    {
+                        float frameScore = 0f;
+                        if (__instance.noteplaying)
+                        {
+                            float distance = Mathf.Abs(1f - (__instance.currentnoteend - currentTiming) / (__instance.currentnoteend - __instance.currentnotestart));
+                            float pitchVariance = __instance.easeInOutVal(distance, 0f, __instance.currentnotepshift, 1f);
+                            frameScore = 100f - Mathf.Abs(__instance.pointerrect.anchoredPosition.y - (__instance.currentnotestarty + pitchVariance));
+
+                            frameScore += frameScore >= 99.25f ? 1f : 0f;
+
+                            frameScore = Mathf.Clamp(frameScore, 0f, 100f);
+                            __instance.notescoretotal += frameScore;
+                        }
+
+                        __instance.notescoresamples += frameScore <= 0f ? 0.22f : 1f;
+                        if (__instance.notescoresamples <= 0f)
+                            __instance.notescoresamples = frameScore <= 0f ? 0.22f : 1f;
+
+                        __instance.notescoreaverage = __instance.notescoretotal / __instance.notescoresamples;
+                    }
+
+                }
+                else //no note active
+                {
+                    if (!__instance.released_button_between_notes && !__instance.notebuttonpressed)
+                        __instance.released_button_between_notes = true;
+                    if (currentTiming > __instance.currentnotestart)
+                    {
+                        __instance.noteactive = true;
+                        __instance.currentnotetimestamp = musicTime;
+                    }
+                }
+                #endregion
+
+                // ~0.004 - 0.005ms
+                #region MovementInputDetection
+                if (!__instance.controllermode && !__instance.paused)
+                {
+                    float num10 = 0f;
+                    if (GlobalVariables.localsettings.mouse_movementmode == 0)
+                    {
+                        Vector3 mousePosition = Input.mousePosition;
+                        if (GlobalVariables.localsettings.mousecontrolmode <= 1)
+                            num10 = mousePosition.y / Screen.height;
+                        else
+                            num10 = mousePosition.x / Screen.width;
+                        num10 = Mathf.Clamp(num10, 0f, 10f);
+                        num10 -= 0.5f;
+                        num10 *= __instance.mousemult * (GlobalVariables.localsettings.sensitivity * 0.2f + 0.8f);
+                    }
+                    else
+                    {
+                        float movement = 0f;
+                        if (GlobalVariables.localsettings.mousecontrolmode <= 1)
+                            movement = Input.GetAxis("Mouse Y") * 0.01f * GlobalVariables.localsettings.sensitivity;
+                        else
+                            movement = Input.GetAxis("Mouse X") * 0.01f * GlobalVariables.localsettings.sensitivity;
+
+                        __instance.mouse_rel_pos += movement;
+                        __instance.mouse_rel_pos = Mathf.Clamp(__instance.mouse_rel_pos, 0f, 1f);
+                        num10 -= 0.5f;
+                        num10 = __instance.mouse_rel_pos;
+                    }
+
+                    if (GlobalVariables.localsettings.mousecontrolmode == 1 || GlobalVariables.localsettings.mousecontrolmode == 2)
+                        num10 = -num10;
+
+                    __instance.puppet_humanc.doPuppetControl(num10 * 2f);
+                    __instance.puppet_humanc.vibrato = __instance.vibratoamt;
+
+                    var posY = Mathf.Clamp(num10 * __instance.vsensitivity, -__instance.vbounds - __instance.outerbuffer, __instance.vbounds + __instance.outerbuffer);
+                    Vector3 vector = new Vector2(__instance.zeroxpos - __instance.dotsize * 0.5f, posY);
+                    Vector3 b = (vector - __instance.pointer.transform.localPosition) * (0.7f - GlobalVariables.localsettings.mouse_smoothing * 0.0066f);
+                    __instance.pointer.transform.localPosition += b;
+                }
+                #endregion
+
+                // ~0.0001ms but spikes at 0.0015 - 0.0025ms sometimes
+                #region PauseAndRetryKeyDetection
+                if (!__instance.quitting && musicTime > 0.5f)
+                {
+                    if (Input.GetKey(KeyCode.Escape) && !__instance.level_finished && __instance.pausecontroller.done_animating)
+                    {
+                        __instance.notebuttonpressed = false;
+                        __instance.musictrack.Pause();
+                        __instance.sfxrefs.backfromfreeplay.Play();
+                        __instance.puppet_humanc.shaking = false;
+                        __instance.puppet_humanc.stopParticleEffects();
+                        __instance.puppet_humanc.playCameraRotationTween(false);
+                        __instance.paused = __instance.quitting = true;
+                        __instance.pausecanvas.SetActive(true);
+                        __instance.pausecontroller.showPausePanel();
+                        Cursor.visible = true;
+                        if (!__instance.track_is_pausable)
+                            __instance.curtainc.closeCurtain(false);
+                    }
+                    else if (!__instance.retrying)
+                    {
+                        if (Input.GetKey(KeyCode.R))
+                        {
+                            __instance.restarttimer += Time.deltaTime * 0.65f;
+                            __instance.restartfader.alpha = __instance.restarttimer * 3f;
+                            for (int i = 0; i < 7; i++)
+                            {
+                                if (!__instance.restartletters_all[i].activeSelf && __instance.restarttimer > 0.05f + i * 0.04f)
+                                {
+                                    __instance.sfxrefs.click.volume = 0.5f;
+                                    __instance.sfxrefs.click.Play();
+                                    __instance.restartletters_all[i].SetActive(true);
+                                    __instance.restartletters_all[i].transform.localScale = new Vector3(0.001f, 5f, 1f);
+                                    LeanTween.scale(__instance.restartletters_all[i], new Vector3(1f, 1f, 1f), 0.15f).setEaseInOutQuart();
+                                }
+                            }
+                            if (__instance.restarttimer > 0.4f)
+                            {
+                                __instance.notebuttonpressed = false;
+                                __instance.musictrack.Pause();
+                                __instance.sfxrefs.backfromfreeplay.Play();
+                                __instance.curtainc.closeCurtain(true);
+                                __instance.paused = __instance.retrying = __instance.quitting = true;
+                            }
+                        }
+                        else if (!__instance.retrying && __instance.restarttimer > 0f)
+                        {
+                            __instance.restarttimer = 0f;
+                            __instance.restartfader.alpha = 0f;
+                            for (int j = 0; j < 7; j++)
+                                __instance.restartletters_all[j].SetActive(false);
+                        }
+                    }
+                }
+                #endregion
+
+                // 0.0015 - 0.0025ms
+                #region BreathingHandlingAndTootSoundHandling
+                if (__instance.noteplaying)
+                {
+                    if (__instance.currentnotesound.time > __instance.currentnotesound.clip.length - 1.25f)
+                        __instance.currentnotesound.time = 1f;
+
+                    float num11 = Mathf.Pow(__instance.notestartpos - __instance.pointer.transform.localPosition.y, 2f) * 6.8E-06f;
+                    float num12 = (__instance.notestartpos - __instance.pointer.transform.localPosition.y) * (1f + num11);
+                    if (num12 > 0f)
+                        num12 = (__instance.notestartpos - __instance.pointer.transform.localPosition.y) * 0.696f;
+
+                    __instance.currentnotesound.pitch = Mathf.Clamp(1f - num12 * __instance.pitchamount, 0.5f, 2f);
+
+                    if (__instance.breathcounter < 1f)
+                    {
+                        __instance.breathcounter += Time.deltaTime * 0.22f * GlobalVariables.practicemode;
+                        if (__instance.breathcounter > 1f)
+                        {
+                            __instance.breathcounter = 1f;
+                            __instance.sfxrefs.outofbreath.Play();
+                            __instance.breathglow.anchoredPosition3D = new Vector3(-380f, 0f, 0f);
+                            __instance.outofbreath = true;
+                            __instance.noteplaying = false;
+                            __instance.setPuppetShake(false);
+                            __instance.setPuppetBreath(true);
+                            __instance.stopNote();
+                        }
+                    }
+                }
+                else
+                {
+                    __instance.trombvol_current = __instance.trombvol_current <= 0f ? 0 : __instance.trombvol_current - Time.deltaTime * 18f;
+                    __instance.currentnotesound.volume = __instance.trombvol_current;
+                    if (__instance.breathcounter > 0f)
+                    {
+                        __instance.breathcounter -= Time.deltaTime * (__instance.outofbreath ? 0.29f : 8.5f);
+                        if (__instance.outofbreath)
+                        {
+                            __instance.breathglow.anchoredPosition3D = new Vector3(-380f + (__instance.breathcounter - 1f) * 120f, 0f, 0f);
+                            if (__instance.breathcounter < 0f)
+                            {
+                                __instance.outofbreath = false;
+                                __instance.setPuppetBreath(false);
+                            }
+                        }
+                        __instance.breathcounter = Mathf.Max(0, __instance.breathcounter);
+                    }
+                }
+
+
+                var idkwtfthisis = (__instance.breathcounter + 0.2f) * (Time.deltaTime * 310f);
+
+                float num14 = __instance.topbreathr.anchoredPosition3D.y;
+                num14 += idkwtfthisis;
+
+                float num15 = __instance.bottombreathr.anchoredPosition3D.y;
+                num15 -= idkwtfthisis;
+
+                if (num14 > -75f)
+                {
+                    num14 = -131f;
+                    num15 = -37f;
+                }
+
+                float x2 = 37f - 72f * __instance.breathcounter;
+                __instance.topbreathr.anchoredPosition3D = new Vector3(x2, num14, 0f);
+                __instance.bottombreathr.anchoredPosition3D = new Vector3(x2, num15, 0f);
+                #endregion
+
+                //Full time: 0.9 - 1.1ms
+                return false;
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.grabNoteRefs))]
+            [HarmonyPrefix]
+            private static bool OverwriteGrabNoteRefs(GameController __instance, object[] __args)
+            {
+                if (!Instance.option.OptimizeGameLoop.Value || __instance.freeplay || __instance.playingineditor || GlobalVariables.localsettings.acc_autotoot) return true;
+                int nextIndex = __instance.currentnoteindex + 1;
+                if (nextIndex < __instance.leveldata.Count)
+                {
+                    var timingGap = Math.Round(Mathf.Abs(Beat2Sec(__instance.leveldata[nextIndex][0], __instance.tempo) - __instance.currentnoteend), 3);
+                    if (timingGap < 0.001f)
+                        __instance.released_button_between_notes = true;
+                    else
+                    {
+                        //This check is in beats
+                        float num2 = __instance.leveldata[nextIndex][0] - (__instance.leveldata[__instance.currentnoteindex][0] + __instance.leveldata[__instance.currentnoteindex][1]);
+                        if (__instance.released_button_during_note == 2 && __instance.leveldata[__instance.currentnoteindex][1] < 0.25f && num2 <= 0.25f)
+                            __instance.released_button_between_notes = true;
+                        else
+                            __instance.released_button_between_notes = false;
+                    }
+                }
+                __instance.released_button_during_note = 0;
+                __instance.currentnoteindex += (int)__args[0];
+                if (__instance.currentnoteindex > __instance.leveldata.Count - 1)
+                {
+                    __instance.currentnotestart = 9999999f;
+                    __instance.currentnoteend = 100000000f;
+                    return false;
+                }
+                float[] array = __instance.leveldata[__instance.currentnoteindex];
+                __instance.currentnotestart = Beat2Sec(array[0], __instance.tempo);
+                __instance.currentnoteend = __instance.currentnotestart + Beat2Sec(array[1], __instance.tempo);
+                __instance.currentnotestarty = array[2];
+                __instance.currentnoteendy = array[4];
+                __instance.currentnotepshift = __instance.currentnoteendy - __instance.currentnotestarty;
+
+                return false;
+            }
+
+            public static float Beat2Sec(float beat, float bpm) => 60f / bpm * beat;
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.tallyScore))]
             [HarmonyPrefix]
@@ -546,81 +1064,6 @@ namespace TootTally.GameTweaks
                 return false;
             }
 
-
-            public static void HandleKeysPresses(GameController __instance, params KeyCode[] keys)
-            {
-                foreach (KeyCode k in keys)
-                {
-                    if (!Input.GetKeyDown(k)) return;
-
-                    switch (k)
-                    {
-                        case KeyCode.Minus:
-                            __instance.adjustTrackVolume(-1f);
-                            break;
-                        case KeyCode.Equals:
-                            __instance.adjustTrackVolume(1f);
-                            break;
-                    }
-                }
-            }
-
-            public static void HandleKeysDown(GameController __instance, params KeyCode[] keys)
-            {
-                foreach (KeyCode k in keys)
-                {
-                    if (!Input.GetKey(k)) return;
-
-                    switch (k)
-                    {
-                        case KeyCode.Escape:
-                            if (!__instance.level_finished && __instance.pausecontroller.done_animating)
-                            {
-                                __instance.notebuttonpressed = false;
-                                __instance.musictrack.Pause();
-                                __instance.sfxrefs.backfromfreeplay.Play();
-                                __instance.puppet_humanc.shaking = false;
-                                __instance.puppet_humanc.stopParticleEffects();
-                                __instance.puppet_humanc.playCameraRotationTween(false);
-                                __instance.paused = __instance.quitting = true;
-                                __instance.pausecanvas.SetActive(true);
-                                __instance.pausecontroller.showPausePanel();
-                                Cursor.visible = true;
-                                if (!__instance.track_is_pausable)
-                                {
-                                    __instance.curtainc.closeCurtain(false);
-                                }
-                            }
-                            break;
-                        case KeyCode.R:
-                            if (!__instance.retrying)
-                            {
-                                __instance.restarttimer += Time.deltaTime * 0.65f;
-                                __instance.restartfader.alpha = __instance.restarttimer * 3f;
-                                for (int i = 0; i < 7; i++)
-                                {
-                                    if (!__instance.restartletters_all[i].activeSelf && __instance.restarttimer > 0.05f + i * 0.04f)
-                                    {
-                                        __instance.sfxrefs.click.volume = 0.5f;
-                                        __instance.sfxrefs.click.Play();
-                                        __instance.restartletters_all[i].SetActive(true);
-                                        __instance.restartletters_all[i].transform.localScale = new Vector3(0.001f, 5f, 1f);
-                                        LeanTween.scale(__instance.restartletters_all[i], new Vector3(1f, 1f, 1f), 0.15f).setEaseInOutQuart();
-                                    }
-                                }
-                                if (__instance.restarttimer > 0.4f)
-                                {
-                                    __instance.notebuttonpressed = false;
-                                    __instance.musictrack.Pause();
-                                    __instance.sfxrefs.backfromfreeplay.Play();
-                                    __instance.curtainc.closeCurtain(true);
-                                    __instance.paused = __instance.retrying = __instance.quitting = true;
-                                }
-                            }
-                            break;
-                    }
-                }
-            }
         }
 
         public class Options
@@ -631,6 +1074,9 @@ namespace TootTally.GameTweaks
             public ConfigEntry<bool> OptimizeGameLoop { get; set; }
             public ConfigEntry<KeyCode> RandomizeKey { get; set; }
             public ConfigEntry<bool> TouchScreenMode { get; set; }
+            public ConfigEntry<bool> OverwriteNoteSpacing { get; set; }
+            public ConfigEntry<string> NoteSpacing { get; set; }
+            public ConfigEntry<bool> HideTromboner { get; set; }
         }
     }
 }
