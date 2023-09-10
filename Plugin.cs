@@ -7,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.IO;
 using TootTally.Graphics;
+using TootTally.Replays;
 using TootTally.Utils;
 using TootTally.Utils.TootTallySettings;
 using UnityEngine;
@@ -70,7 +71,7 @@ namespace TootTally.GameTweaks
             settingPage?.AddToggle("HideTromboner", option.HideTromboner);
             settingPage?.AddToggle("SyncDuringSong", option.SyncDuringSong);
             settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
-            settingPage?.AddToggle("OptimizingGameLoop", option.OptimizeGameLoop);
+            //settingPage?.AddToggle("OptimizingGameLoop", option.OptimizeGameLoop);
             settingPage?.AddToggle("OverwriteNoteSpacing", option.OverwriteNoteSpacing, OnOverwriteNoteSpacingToggle);
             OnOverwriteNoteSpacingToggle(option.OverwriteNoteSpacing.Value);
 
@@ -142,7 +143,7 @@ namespace TootTally.GameTweaks
             {
                 if (!Instance.option.OverwriteNoteSpacing.Value) return;
                 if (int.TryParse(Instance.option.NoteSpacing.Value, out var num) && num > 0)
-                    __instance.defaultnotelength = (int)(100f / __instance.tempo * num * GlobalVariables.gamescrollspeed);
+                    __instance.defaultnotelength = (int)(100f / __instance.tempo * num * GlobalVariables.gamescrollspeed * ReplaySystemManager.gameSpeedMultiplier);
 
             }
 
@@ -585,7 +586,7 @@ namespace TootTally.GameTweaks
             }
 
 
-            [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
+            /*[HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
             [HarmonyPrefix]
             public static bool OverwriteGameLoopModified(GameController __instance)
             {
@@ -1003,7 +1004,7 @@ namespace TootTally.GameTweaks
 
                 //Full time: 0.9 - 1.1ms
                 return false;
-            }
+            }*/
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.grabNoteRefs))]
             [HarmonyPrefix]
