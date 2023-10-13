@@ -3,16 +3,17 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
-using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Threading;
+using System.Linq;
 using TootTally.Graphics;
 using TootTally.Replays;
 using TootTally.Spectating;
 using TootTally.Utils;
 using TootTally.Utils.TootTallySettings;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 
 namespace TootTally.GameTweaks
@@ -65,6 +66,7 @@ namespace TootTally.GameTweaks
                 OverwriteNoteSpacing = config.Bind("Misc", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
                 SkipCardAnimation = config.Bind("Misc", "SkipCardAnimation", true, "Skip the animation when opening cards."),
                 NoteSpacing = config.Bind("Misc", "NoteSpacing", 280.ToString(), "Note Spacing Value"),
+                IncreaseTromboneRange = config.Bind("Misc", "IncreaseTromboneRange", true, "Increase the range of notes the trombone can play."),
             };
 
             settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
@@ -75,6 +77,7 @@ namespace TootTally.GameTweaks
             settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
             settingPage?.AddToggle("SkipCardAnimation", option.SkipCardAnimation);
             settingPage?.AddToggle("OverwriteNoteSpacing", option.OverwriteNoteSpacing, OnOverwriteNoteSpacingToggle);
+            settingPage?.AddToggle("IncreaseTromboneRange", option.IncreaseTromboneRange);
             OnOverwriteNoteSpacingToggle(option.OverwriteNoteSpacing.Value);
 
             Harmony.CreateAndPatchAll(typeof(GameTweaks), PluginInfo.PLUGIN_GUID);
@@ -228,6 +231,81 @@ namespace TootTally.GameTweaks
                 __instance.moveAwayOpenedCards();
                 return __instance.multipurchase_opened_sacks >= __instance.multipurchase_chosenpacks;
             }
+
+            private const float semitone = 13.75f;
+            private static Dictionary<float, AudioClip> _posToClipDict;
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.loadSoundBundleResources))]
+            [HarmonyPostfix]
+            public static void SetLinePos(GameController __instance)
+            {
+                if (!Instance.option.IncreaseTromboneRange.Value) return;
+                string folderPath = Path.Combine(Path.GetDirectoryName(Instance.Info.Location), "AudioClips");
+
+                Plugin.Instance.StartCoroutine(LoadAudioClip(folderPath, clips => { __instance.trombclips.tclips = clips.ToArray(); OnClipsLoaded(__instance); }));
+            }
+
+            public static void OnClipsLoaded(GameController __instance)
+            {
+                var clipCount = __instance.trombclips.tclips.Length;
+
+                _posToClipDict = new Dictionary<float, AudioClip>(clipCount);
+
+                var value = (clipCount - (clipCount%12)) * -semitone;
+                for (int i = 0; i < clipCount; i++)
+                {
+                    _posToClipDict.Add(value, __instance.trombclips.tclips[i]);
+                    var mod = i % 7;
+                    if (mod == 2 || mod == 6)
+                        value += semitone;
+                    else
+                        value += semitone * 2f;
+                }
+            }
+            public static readonly List<char> notesLetters = new List<char> { 'C', 'D', 'E', 'F', 'G', 'A', 'B'};
+            public static IEnumerator<UnityWebRequestAsyncOperation> LoadAudioClip(string folderPath, Action<List<AudioClip>> callback)
+            {
+                List<AudioClip> audioClips = new List<AudioClip>();
+
+                var orderedFiles = Directory.GetFiles(folderPath).OrderBy(x => Path.GetFileNameWithoutExtension(x)[0], new NoteComparer()).OrderBy(x => Path.GetFileNameWithoutExtension(x)[1]);
+                foreach (string f in orderedFiles)
+                {
+                    Plugin.Instance.LogInfo(f);
+                    UnityWebRequest webRequest = UnityWebRequestMultimedia.GetAudioClip(f, AudioType.WAV);
+                    yield return webRequest.SendWebRequest();
+                    if (!webRequest.isNetworkError && !webRequest.isHttpError)
+                        audioClips.Add(DownloadHandlerAudioClip.GetContent(webRequest));
+                }
+
+                if (audioClips.Count > 0)
+                    callback(audioClips);
+            }
+
+            public class NoteComparer : IComparer<char>
+            {
+                public int Compare(char x, char y)
+                {
+                    if (notesLetters.FindIndex(l => l == x) < notesLetters.FindIndex(l => l == y)) return -1;
+                    if (notesLetters.FindIndex(l => l == x) > notesLetters.FindIndex(l => l == y)) return 1;
+                    return 0;
+                }
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.playNote))]
+            [HarmonyPrefix]
+            public static bool OverwritePlayNote(GameController __instance)
+            {
+                if (!Instance.option.IncreaseTromboneRange.Value) return true;
+
+                var pointerY = __instance.pointer.transform.localPosition.y;
+                var clipPair = _posToClipDict.Aggregate((x, y) => Math.Abs(x.Key - pointerY) < Math.Abs(y.Key - pointerY) ? x : y);
+
+                __instance.notestartpos = clipPair.Key;
+                __instance.currentnotesound.clip = clipPair.Value;
+                __instance.currentnotesound.Play();
+
+                return false;
+            }
         }
 
         public class Options
@@ -241,6 +319,7 @@ namespace TootTally.GameTweaks
             public ConfigEntry<string> NoteSpacing { get; set; }
             public ConfigEntry<bool> HideTromboner { get; set; }
             public ConfigEntry<bool> SkipCardAnimation { get; set; }
+            public ConfigEntry<bool> IncreaseTromboneRange { get; set; }
         }
     }
 }
