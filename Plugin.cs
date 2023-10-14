@@ -66,7 +66,7 @@ namespace TootTally.GameTweaks
                 OverwriteNoteSpacing = config.Bind("Misc", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
                 SkipCardAnimation = config.Bind("Misc", "SkipCardAnimation", true, "Skip the animation when opening cards."),
                 NoteSpacing = config.Bind("Misc", "NoteSpacing", 280.ToString(), "Note Spacing Value"),
-                IncreaseTromboneRange = config.Bind("Misc", "IncreaseTromboneRange", true, "Increase the range of notes the trombone can play."),
+                IncreaseTromboneRange = config.Bind("Misc", "IncreaseTromboneRange", false, "Increase the range of notes the trombone can play."),
             };
 
             settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
