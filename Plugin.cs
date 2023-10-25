@@ -380,7 +380,7 @@ namespace TootTally.GameTweaks
                 if (__instance.smooth_scrolling && !__instance.paused && __instance.musictrack.time > 0f)
                 {
                     _preciseNoteHolderPosition -= (decimal)(Time.deltaTime * __instance.trackmovemult * __instance.smooth_scrolling_move_mult * __instance.smooth_scrolling_mod_mult);
-                    __instance.noteholderr.anchoredPosition3D = new Vector3((float)_preciseNoteHolderPosition,0f);
+                    __instance.noteholderr.anchoredPosition3D = new Vector3((float)_preciseNoteHolderPosition, 0f);
                 }
             }
 
@@ -413,13 +413,13 @@ namespace TootTally.GameTweaks
             private static void BuildSingleNote(GameController __instance, int index)
             {
                 float[] previousNoteData = new float[]
-                       {
+                {
                         9999f,
                         9999f,
                         9999f,
                         0f,
                         9999f
-                       };
+                };
                 GameObject previousNote = null;
                 if (index > 0)
                 {
@@ -432,45 +432,38 @@ namespace TootTally.GameTweaks
                 {
                     previousNoteIsSlider = true;
                 }
-                bool isTapNote = false;
-                if (noteData[1] <= 0.0625f && __instance.tempo > 50f && noteData[3] == 0f && !previousNoteIsSlider)
-                {
-                    isTapNote = true;
-                }
+                bool isTapNote = noteData[1] <= 0.0625f && __instance.tempo > 50f && noteData[3] == 0f && !previousNoteIsSlider;
                 if (noteData[1] <= 0f)
                 {
                     noteData[1] = 0.015f;
                     __instance.leveldata[index][1] = 0.015f;
                 }
-
                 GameObject currentNote = _noteArray[index % _noteArray.Length];
                 LeanTween.cancel(currentNote);
                 currentNote.transform.localScale = Vector3.one;
                 __instance.allnotes.Add(currentNote);
                 NoteDesigner noteDesigner = currentNote.GetComponent<NoteDesigner>();
-                if (previousNoteIsSlider)
-                {
-                    if (!__instance.flipscheme)
-                    {
-                        __instance.flipscheme = true;
-                    }
-                    else
-                    {
-                        __instance.flipscheme = false;
-                    }
-                }
-                else
-                {
-                    __instance.flipscheme = false;
-                }
+                __instance.flipscheme = previousNoteIsSlider && !__instance.flipscheme;
 
                 if (!__instance.flipscheme)
                 {
-                    noteDesigner.setColorScheme(__instance.note_c_start[0], __instance.note_c_start[1], __instance.note_c_start[2], __instance.note_c_end[0], __instance.note_c_end[1], __instance.note_c_end[2]);
+                    noteDesigner.setColorScheme(
+                    __instance.note_c_start[0],
+                    __instance.note_c_start[1],
+                    __instance.note_c_start[2],
+                    __instance.note_c_end[0],
+                    __instance.note_c_end[1],
+                    __instance.note_c_end[2]);
                 }
                 else if (__instance.flipscheme)
                 {
-                    noteDesigner.setColorScheme(__instance.note_c_end[0], __instance.note_c_end[1], __instance.note_c_end[2], __instance.note_c_start[0], __instance.note_c_start[1], __instance.note_c_start[2]);
+                    noteDesigner.setColorScheme(
+                    __instance.note_c_end[0],
+                    __instance.note_c_end[1],
+                    __instance.note_c_end[2],
+                    __instance.note_c_start[0],
+                    __instance.note_c_start[1],
+                    __instance.note_c_start[2]);
                 }
                 RectTransform currentNoteRect = currentNote.GetComponent<RectTransform>();
                 GameObject currentNoteStart = currentNote.transform.GetChild(0).gameObject;
@@ -519,23 +512,25 @@ namespace TootTally.GameTweaks
                 foreach (LineRenderer lineRenderer in lineRenderers)
                 {
                     lineRenderer.gameObject.SetActive(!isTapNote);
-                    if (!isTapNote)
+                    if (isTapNote) continue;
+                    if (pitchDelta == 0f)
                     {
-                        if (pitchDelta == 0f)
+                        lineRenderer.positionCount = 2;
+                        lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
+                        lineRenderer.SetPosition(1, new Vector3(notePosition, 0f, 0f));
+                    }
+                    else
+                    {
+                        int sliderSampleCount = (int)Instance.option.SliderSamplePoints.Value;
+                        lineRenderer.positionCount = sliderSampleCount;
+                        lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
+                        for (int k = 1; k < sliderSampleCount; k++)
                         {
-                            lineRenderer.positionCount = 2;
-                            lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
-                            lineRenderer.SetPosition(1, new Vector3(notePosition, 0f, 0f));
-                        }
-                        else
-                        {
-                            int sliderSampleCount = (int)Instance.option.SliderSamplePoints.Value;
-                            lineRenderer.positionCount = sliderSampleCount;
-                            lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
-                            for (int k = 1; k < sliderSampleCount; k++)
-                            {
-                                lineRenderer.SetPosition(k, new Vector3(notePosition / (sliderSampleCount - 1) * k, __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1), 0f));
-                            }
+                            lineRenderer.SetPosition(k,
+                                new Vector3(
+                                notePosition / (sliderSampleCount - 1) * k,
+                                __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1),
+                                0f));
                         }
                     }
 
