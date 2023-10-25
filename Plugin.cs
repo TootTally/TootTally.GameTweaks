@@ -475,13 +475,11 @@ namespace TootTally.GameTweaks
                 GameObject currentNoteEnd = currentNote.transform.GetChild(1).gameObject;
                 RectTransform noteEndRect = currentNoteEnd.GetComponent<RectTransform>();
                 currentNoteRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
-                if (isTapNote)
+
+                currentNoteEnd.SetActive(!isTapNote);
+
+                if (!isTapNote)
                 {
-                    currentNoteEnd.SetActive(false);
-                }
-                else
-                {
-                    currentNoteEnd.SetActive(true);
                     noteEndRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
                     if (_noteInitIndex >= TrombLoader.Plugin.Instance.beatsToShow.Value)
                     {
