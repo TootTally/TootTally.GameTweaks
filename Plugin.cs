@@ -4,9 +4,11 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using TootTally.Graphics;
 using TootTally.Replays;
 using TootTally.Spectating;
@@ -55,6 +57,7 @@ namespace TootTally.GameTweaks
         {
             string configPath = Path.Combine(Paths.BepInExRootPath, "config/");
             ConfigFile config = new ConfigFile(configPath + CONFIG_NAME, true);
+            config.SaveOnConfigSet = true;
             option = new Options()
             {
                 ChampMeterSize = config.Bind("General", "ChampMeterSize", 1f, "Resize the champ meter to make it less intrusive."),
@@ -63,10 +66,19 @@ namespace TootTally.GameTweaks
                 RandomizeKey = config.Bind("General", "RandomizeKey", KeyCode.F5, "Press that key to randomize."),
                 MuteButtonTransparency = config.Bind("General", "MuteBtnAlpha", .25f, "Change the transparency of the mute button."),
                 TouchScreenMode = config.Bind("Misc", "TouchScreenMode", false, "Tweaks for touchscreen users."),
-                OverwriteNoteSpacing = config.Bind("Misc", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
+                OverwriteNoteSpacing = config.Bind("NoteSpacing", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
+                NoteSpacing = config.Bind("NoteSpacing", "NoteSpacing", 280.ToString(), "Note Spacing Value"),
                 SkipCardAnimation = config.Bind("Misc", "SkipCardAnimation", true, "Skip the animation when opening cards."),
-                NoteSpacing = config.Bind("Misc", "NoteSpacing", 280.ToString(), "Note Spacing Value"),
                 IncreaseTromboneRange = config.Bind("Misc", "IncreaseTromboneRange", false, "Increase the range of notes the trombone can play."),
+                OptimizeGame = config.Bind("Misc", "OptimizeGame", false, "Instantiate and destroy notes as they enter and leave the screen."),
+                SliderSamplePoints = config.Bind("Misc", "SliderSamplePoints", 8f, "Increase or decrease the quality of slides."),
+                RememberMyBoner = config.Bind("RMB", "RememberMyBoner", true, "Remembers the things you selected in the character selection screen."),
+                TootRainbow = config.Bind("RMB", "TootRainbow", false, "Remembers the tootrainbow you selected."),
+                LongTrombone = config.Bind("RMB", "LongTrombone", false, "Remembers the longtrombone you selected."),
+                CharacterID = config.Bind("RMB", "CharacterID", 0, "Remembers the character you selected."),
+                TromboneID = config.Bind("RMB", "TromboneID", 0, "Remembers the trombone you selected."),
+                VibeID = config.Bind("RMB", "VibeID", 0, "Remembers the vibe you selected."),
+                SoundID = config.Bind("RMB", "SoundID", 0, "Remembers the sound you selected."),
             };
 
             settingPage = TootTallySettingsManager.AddNewPage("GameTweaks", "Game Tweaks", 40f, new Color(0, 0, 0, 0));
@@ -78,10 +90,22 @@ namespace TootTally.GameTweaks
             settingPage?.AddToggle("SkipCardAnimation", option.SkipCardAnimation);
             settingPage?.AddToggle("OverwriteNoteSpacing", option.OverwriteNoteSpacing, OnOverwriteNoteSpacingToggle);
             settingPage?.AddToggle("IncreaseTromboneRange", option.IncreaseTromboneRange);
+            settingPage?.AddToggle("OptimizeGame", option.OptimizeGame, OnOptimizeGameToggle);
+            OnOptimizeGameToggle(option.OptimizeGame.Value);
+            settingPage?.AddToggle("RememberMyBoner", option.RememberMyBoner);
             OnOverwriteNoteSpacingToggle(option.OverwriteNoteSpacing.Value);
 
             Harmony.CreateAndPatchAll(typeof(GameTweaks), PluginInfo.PLUGIN_GUID);
             LogInfo($"Module loaded!");
+        }
+
+        public void OnOptimizeGameToggle(bool value)
+        {
+            if (value)
+                settingPage?.AddSlider("SliderSamplePoints", 2, 50, option.SliderSamplePoints, true);
+            else
+                settingPage?.RemoveSettingObjectFromList("SliderSamplePoints");
+
         }
 
         public void OnOverwriteNoteSpacingToggle(bool value)
@@ -148,7 +172,7 @@ namespace TootTally.GameTweaks
             {
                 if (!Instance.option.OverwriteNoteSpacing.Value) return;
                 if (int.TryParse(Instance.option.NoteSpacing.Value, out var num) && num > 0)
-                    __instance.defaultnotelength = (int)(100f / __instance.tempo * num * GlobalVariables.gamescrollspeed * ReplaySystemManager.gameSpeedMultiplier);
+                    __instance.defaultnotelength = (int)(100f / (__instance.tempo * ReplaySystemManager.gameSpeedMultiplier) * num * GlobalVariables.gamescrollspeed);
 
             }
 
@@ -197,6 +221,7 @@ namespace TootTally.GameTweaks
             [HarmonyPrefix]
             public static bool SyncOnlyOnce()
             {
+                if (Input.GetKey(KeyCode.Space)) return true; //Sync if holding down spacebar
                 if (Instance.option.SyncDuringSong.Value) return true; //always sync if enabled
                 if (ReplaySystemManager.wasPlayingReplay) return true; //always sync if watching replay
                 if (SpectatingManager.IsSpectating) return true; //always sync if spectating someone
@@ -219,7 +244,7 @@ namespace TootTally.GameTweaks
             public static void OverwriteMaximumOpeningCard(CardSceneController __instance)
             {
                 if (!Instance.option.SkipCardAnimation.Value) return;
-                __instance.multipurchase_maxpacks = 999;
+                __instance.multipurchase_maxpacks = (int)Mathf.Clamp(__instance.currency_toots / 499f, 1, 999);
             }
 
             [HarmonyPatch(typeof(CardSceneController), nameof(CardSceneController.clickedContinue))]
@@ -251,7 +276,7 @@ namespace TootTally.GameTweaks
 
                 _posToClipDict = new Dictionary<float, AudioClip>(clipCount);
 
-                var value = (clipCount - (clipCount%12)) * -semitone;
+                var value = (clipCount - (clipCount % 12)) * -semitone;
                 for (int i = 0; i < clipCount; i++)
                 {
                     _posToClipDict.Add(value, __instance.trombclips.tclips[i]);
@@ -262,7 +287,7 @@ namespace TootTally.GameTweaks
                         value += semitone * 2f;
                 }
             }
-            public static readonly List<char> notesLetters = new List<char> { 'C', 'D', 'E', 'F', 'G', 'A', 'B'};
+            public static readonly List<char> notesLetters = new List<char> { 'C', 'D', 'E', 'F', 'G', 'A', 'B' };
             public static IEnumerator<UnityWebRequestAsyncOperation> LoadAudioClip(string folderPath, Action<List<AudioClip>> callback)
             {
                 List<AudioClip> audioClips = new List<AudioClip>();
@@ -306,7 +331,251 @@ namespace TootTally.GameTweaks
 
                 return false;
             }
+
+            private static GameObject[] _noteArray;
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.buildNotes))]
+            [HarmonyPrefix]
+            public static bool OverwriteBuildNotes(GameController __instance)
+            {
+                if (!Instance.option.OptimizeGame.Value) return true;
+
+                BuildNoteArray(__instance, TrombLoader.Plugin.Instance.beatsToShow.Value);
+                buildNotes(__instance);
+
+                return false;
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.animateOutNote))]
+            [HarmonyPostfix]
+            public static void OnGrabNoteRefsInstantiateNote(GameController __instance)
+            {
+                if (!Instance.option.OptimizeGame.Value) return;
+                if (_noteInitIndex < __instance.leveldata.Count)
+                    BuildSingleNote(__instance, _noteInitIndex);
+
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.activateNextNote))]
+            [HarmonyPrefix]
+            private static bool SkipFirstActivateNextNote(object[] __args) => (int)__args[0] != 1;
+
+            private static int _noteInitIndex;
+
+            private static void buildNotes(GameController __instance)
+            {
+                _noteInitIndex = 0;
+                _previousNote = null;
+                for (int i = 0; i < _noteArray.Length && _noteInitIndex < __instance.leveldata.Count; i++)
+                {
+                    BuildSingleNote(__instance, i);
+                }
+            }
+
+            private static void BuildNoteArray(GameController __instance, int size)
+            {
+                _noteArray = new GameObject[size];
+                for (int i = 0; i < size; i++)
+                {
+                    _noteArray[i] = GameObject.Instantiate<GameObject>(__instance.singlenote, new Vector3(0f, 0f, 0f), Quaternion.identity, __instance.noteholder.transform);
+                    _noteArray[i].SetActive(true);
+                }
+            }
+
+
+            private static GameObject _previousNote;
+            private static void BuildSingleNote(GameController __instance, int index)
+            {
+                float[] previousNoteData = new float[]
+                       {
+                        9999f,
+                        9999f,
+                        9999f,
+                        0f,
+                        9999f
+                       };
+                GameObject previousNote = null;
+                if (index > 0)
+                {
+                    previousNoteData = __instance.leveldata[index - 1];
+                    previousNote = __instance.allnotes[index - 1];
+                }
+                float[] noteData = __instance.leveldata[index];
+                bool previousNoteIsSlider = false;
+                if (Mathf.Abs(previousNoteData[0] + previousNoteData[1] - noteData[0]) < 0.01f)
+                {
+                    previousNoteIsSlider = true;
+                }
+                bool isTapNote = false;
+                if (noteData[1] <= 0.0625f && __instance.tempo > 50f && noteData[3] == 0f && !previousNoteIsSlider)
+                {
+                    isTapNote = true;
+                }
+                if (noteData[1] <= 0f)
+                {
+                    noteData[1] = 0.015f;
+                    __instance.leveldata[index][1] = 0.015f;
+                }
+                GameObject currentNote = _previousNote ?? _noteArray[index % _noteArray.Length];
+
+                LeanTween.cancel(currentNote);
+                __instance.allnotes.Add(currentNote);
+                NoteDesigner noteDesigner = currentNote.GetComponent<NoteDesigner>();
+                if (previousNoteIsSlider)
+                {
+                    if (!__instance.flipscheme)
+                    {
+                        __instance.flipscheme = true;
+                    }
+                    else
+                    {
+                        __instance.flipscheme = false;
+                    }
+                }
+                else
+                {
+                    __instance.flipscheme = false;
+                }
+
+                if (!__instance.flipscheme)
+                {
+                    noteDesigner.setColorScheme(__instance.note_c_start[0], __instance.note_c_start[1], __instance.note_c_start[2], __instance.note_c_end[0], __instance.note_c_end[1], __instance.note_c_end[2]);
+                }
+                else if (__instance.flipscheme)
+                {
+                    noteDesigner.setColorScheme(__instance.note_c_end[0], __instance.note_c_end[1], __instance.note_c_end[2], __instance.note_c_start[0], __instance.note_c_start[1], __instance.note_c_start[2]);
+                }
+                RectTransform currentNoteRect = currentNote.GetComponent<RectTransform>();
+                GameObject currentNoteStart = currentNote.transform.GetChild(0).gameObject;
+                if (previousNoteIsSlider)
+                {
+                    previousNote.transform.GetChild(1).gameObject.SetActive(false); //End of previous note
+                    currentNoteStart.SetActive(false);
+                }
+                else
+                {
+                    currentNoteStart.SetActive(true);
+                }
+                GameObject currentNoteEnd = currentNote.transform.GetChild(1).gameObject;
+                RectTransform noteEndRect = currentNoteEnd.GetComponent<RectTransform>();
+                currentNoteRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
+                if (isTapNote)
+                {
+                    currentNoteEnd.SetActive(false);
+                }
+                else
+                {
+                    currentNoteEnd.SetActive(true);
+                    noteEndRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
+                    if (_noteInitIndex >= TrombLoader.Plugin.Instance.beatsToShow.Value)
+                    {
+                        noteEndRect.anchorMin = noteEndRect.anchorMax = new Vector2(1, .5f);
+                        noteEndRect.pivot = new Vector2(0.34f, 0.5f);
+                    }
+                }
+                float[] noteVal = new float[]
+                {
+                        noteData[0] * __instance.defaultnotelength,
+                        noteData[0] * __instance.defaultnotelength + __instance.defaultnotelength * noteData[1],
+                        noteData[2],
+                        noteData[3],
+                        noteData[4]
+                };
+                __instance.allnotevals.Add(noteVal);
+                float notePosition = __instance.defaultnotelength * noteData[1];
+                float pitchDelta = noteData[3];
+                LineRenderer[] lineRenderers = new LineRenderer[]
+                {
+                    currentNote.transform.GetChild(2).GetComponent<LineRenderer>(),
+                    currentNote.transform.GetChild(3).GetComponent<LineRenderer>()
+                };
+                foreach (LineRenderer lineRenderer in lineRenderers)
+                {
+                    lineRenderer.gameObject.SetActive(!isTapNote);
+                    if (!isTapNote)
+                    {
+                        if (pitchDelta == 0f)
+                        {
+                            lineRenderer.positionCount = 2;
+                            lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
+                            lineRenderer.SetPosition(1, new Vector3(notePosition, 0f, 0f));
+                        }
+                        else
+                        {
+                            int sliderSampleCount = (int)Instance.option.SliderSamplePoints.Value;
+                            lineRenderer.positionCount = sliderSampleCount;
+                            lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
+                            for (int k = 1; k < sliderSampleCount; k++)
+                            {
+                                lineRenderer.SetPosition(k, new Vector3(notePosition / (sliderSampleCount - 1) * k, __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1), 0f));
+                            }
+                        }
+                    }
+
+                }
+                if (index > __instance.beatstoshow && !__instance.leveleditor)
+                {
+                    currentNote.SetActive(false);
+                }
+                _previousNote = _noteArray[index % _noteArray.Length];
+                _noteInitIndex++;
+            }
+
+            #region CharSelectPatches
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.Start))]
+            [HarmonyPrefix]
+            public static void OnCharSelectStart()
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                GlobalVariables.chosen_character = Instance.option.CharacterID.Value;
+                GlobalVariables.chosen_trombone = Instance.option.TromboneID.Value;
+                GlobalVariables.chosen_soundset = Math.Min(Instance.option.SoundID.Value, 5);
+                GlobalVariables.chosen_vibe = Instance.option.VibeID.Value;
+                GlobalVariables.show_toot_rainbow = Instance.option.TootRainbow.Value;
+                GlobalVariables.show_long_trombone = Instance.option.LongTrombone.Value;
+
+            }
+
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.chooseChar))]
+            [HarmonyPostfix]
+            public static void OnCharSelect(object[] __args)
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                Instance.option.CharacterID.Value = (int)__args[0];
+            }
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.chooseTromb))]
+            [HarmonyPostfix]
+            public static void OnColorSelect(object[] __args)
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                Instance.option.TromboneID.Value = (int)__args[0];
+            }
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.chooseSoundPack))]
+            [HarmonyPostfix]
+            public static void OnSoundSelect(object[] __args)
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                Instance.option.SoundID.Value = (int)__args[0];
+            }
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.clickVibeButton))]
+            [HarmonyPostfix]
+            public static void OnTromboneSelect(object[] __args)
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                Instance.option.VibeID.Value = (int)__args[0];
+            }
+            [HarmonyPatch(typeof(CharSelectController_new), nameof(CharSelectController_new.clickExtraButton))]
+            [HarmonyPostfix]
+            public static void OnTogRainbowSelect()
+            {
+                if (!Instance.option.RememberMyBoner.Value) return;
+                Instance.option.TootRainbow.Value = GlobalVariables.show_toot_rainbow;
+                Instance.option.LongTrombone.Value = GlobalVariables.show_long_trombone;
+            }
+            #endregion
         }
+
+
 
         public class Options
         {
@@ -320,6 +589,16 @@ namespace TootTally.GameTweaks
             public ConfigEntry<bool> HideTromboner { get; set; }
             public ConfigEntry<bool> SkipCardAnimation { get; set; }
             public ConfigEntry<bool> IncreaseTromboneRange { get; set; }
+            public ConfigEntry<bool> OptimizeGame { get; set; }
+            public ConfigEntry<float> SliderSamplePoints { get; set; }
+            public ConfigEntry<bool> RememberMyBoner { get; set; }
+            public ConfigEntry<bool> LongTrombone { get; set; }
+            public ConfigEntry<bool> TootRainbow { get; set; }
+            public ConfigEntry<int> CharacterID { get; set; }
+            public ConfigEntry<int> SoundID { get; set; }
+            public ConfigEntry<int> VibeID { get; set; }
+            public ConfigEntry<int> TromboneID { get; set; }
+
         }
     }
 }
