@@ -8,8 +8,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using TootTally.Graphics;
+using TootTally.Graphics.Animation;
 using TootTally.Replays;
 using TootTally.Spectating;
 using TootTally.Utils;
@@ -346,14 +348,32 @@ namespace TootTally.GameTweaks
                 return false;
             }
 
+            private static Queue<Coroutine> _currentCoroutines;
+
             [HarmonyPatch(typeof(GameController), nameof(GameController.animateOutNote))]
             [HarmonyPostfix]
             public static void OnGrabNoteRefsInstantiateNote(GameController __instance)
             {
                 if (!Instance.option.OptimizeGame.Value) return;
                 if (_noteInitIndex < __instance.leveldata.Count)
-                    BuildSingleNote(__instance, _noteInitIndex);
+                {
+                    _currentCoroutines.Enqueue(Instance.StartCoroutine(TootTallyAPIService.WaitForSecondsCallback(.1f,
+                        delegate {
+                            _currentCoroutines.Dequeue();
+                            BuildSingleNote(__instance, _noteInitIndex);
+                        })));
+                }
 
+            }
+
+            [HarmonyPatch(typeof(PointSceneController), nameof(PointSceneController.Start))]
+            [HarmonyPostfix]
+            public static void StopAllNoteCoroutine()
+            {
+                while(_currentCoroutines.TryDequeue(out Coroutine c))
+                {
+                    Instance.StopCoroutine(c);
+                };
             }
 
             private static decimal _preciseNoteHolderPosition;
@@ -363,6 +383,7 @@ namespace TootTally.GameTweaks
 
             public static void GetNoteHolderStartPosition(GameController __instance)
             {
+                _currentCoroutines = new Queue<Coroutine>();
                 _preciseNoteHolderPosition = (decimal)__instance.noteholderr.anchoredPosition3D.x;
             }
 
@@ -438,23 +459,23 @@ namespace TootTally.GameTweaks
                 __instance.flipscheme = previousNoteIsSlider && !__instance.flipscheme;
 
                 currentNote.SetColorScheme(__instance.note_c_start, __instance.note_c_end, __instance.flipscheme);
-
+                currentNote.noteDesigner.enabled = false;
                 if (index > 0)
                 {
                     __instance.allnotes[index - 1].transform.GetChild(1).gameObject.SetActive(!previousNoteIsSlider); //End of previous note
                     currentNote.noteStart.SetActive(!previousNoteIsSlider);
                 }
 
-                currentNote.endRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
-                currentNote.noteEnd.SetActive(!isTapNote);
+                currentNote.noteRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
+                currentNote.noteEndRect.localScale = isTapNote ? Vector2.zero : Vector3.one;
 
+                currentNote.noteEndRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
                 if (!isTapNote)
                 {
-                    currentNote.endRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
                     if (_noteInitIndex >= TrombLoader.Plugin.Instance.beatsToShow.Value)
                     {
-                        currentNote.endRect.anchorMin = currentNote.endRect.anchorMax = new Vector2(1, .5f);
-                        currentNote.endRect.pivot = new Vector2(0.34f, 0.5f);
+                        currentNote.noteEndRect.anchorMin = currentNote.noteEndRect.anchorMax = new Vector2(1, .5f);
+                        currentNote.noteEndRect.pivot = new Vector2(0.34f, 0.5f);
                     }
                 }
                 float[] noteVal = new float[]
@@ -466,7 +487,7 @@ namespace TootTally.GameTweaks
                     noteData[4]
                 };
                 __instance.allnotevals.Add(noteVal);
-                float notePosition = __instance.defaultnotelength * noteData[1];
+                float noteLength = __instance.defaultnotelength * noteData[1];
                 float pitchDelta = noteData[3];
                 foreach (LineRenderer lineRenderer in currentNote.lineRenderers)
                 {
@@ -476,7 +497,7 @@ namespace TootTally.GameTweaks
                     {
                         lineRenderer.positionCount = 2;
                         lineRenderer.SetPosition(0, new Vector3(-3f, 0f, 0f));
-                        lineRenderer.SetPosition(1, new Vector3(notePosition, 0f, 0f));
+                        lineRenderer.SetPosition(1, new Vector3(noteLength, 0f, 0f));
                     }
                     else
                     {
@@ -487,7 +508,7 @@ namespace TootTally.GameTweaks
                         {
                             lineRenderer.SetPosition(k,
                             new Vector3(
-                            notePosition / (sliderSampleCount - 1) * k,
+                            noteLength / (sliderSampleCount - 1) * k,
                             __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1),
                             0f));
                         }

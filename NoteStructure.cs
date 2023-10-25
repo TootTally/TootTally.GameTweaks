@@ -11,7 +11,7 @@ namespace TootTally.GameTweaks
     {
         public GameObject root, noteStart, noteEnd;
         public NoteDesigner noteDesigner;
-        public RectTransform noteRect, endRect;
+        public RectTransform noteRect, noteEndRect;
         public LineRenderer[] lineRenderers;
 
 
@@ -23,7 +23,7 @@ namespace TootTally.GameTweaks
             noteRect = root.GetComponent<RectTransform>();
             noteStart = root.transform.GetChild(0).gameObject;
             noteEnd = root.transform.GetChild(1).gameObject;
-            endRect = noteEnd.GetComponent<RectTransform>();
+            noteEndRect = noteEnd.GetComponent<RectTransform>();
             lineRenderers = new LineRenderer[]
             {
                 root.transform.GetChild(2).GetComponent<LineRenderer>(),
