@@ -414,11 +414,11 @@ namespace TootTally.GameTweaks
             {
                 float[] previousNoteData = new float[]
                 {
-                        9999f,
-                        9999f,
-                        9999f,
-                        0f,
-                        9999f
+                    9999f,
+                    9999f,
+                    9999f,
+                    0f,
+                    9999f
                 };
                 GameObject previousNote = null;
                 if (index > 0)
@@ -465,17 +465,13 @@ namespace TootTally.GameTweaks
                     __instance.note_c_start[1],
                     __instance.note_c_start[2]);
                 }
+
                 RectTransform currentNoteRect = currentNote.GetComponent<RectTransform>();
                 GameObject currentNoteStart = currentNote.transform.GetChild(0).gameObject;
-                if (previousNoteIsSlider)
-                {
-                    previousNote.transform.GetChild(1).gameObject.SetActive(false); //End of previous note
-                    currentNoteStart.SetActive(false);
-                }
-                else
-                {
-                    currentNoteStart.SetActive(true);
-                }
+
+                previousNote.transform.GetChild(1).gameObject.SetActive(!previousNoteIsSlider); //End of previous note
+                currentNoteStart.SetActive(!previousNoteIsSlider);
+
                 GameObject currentNoteEnd = currentNote.transform.GetChild(1).gameObject;
                 RectTransform noteEndRect = currentNoteEnd.GetComponent<RectTransform>();
                 currentNoteRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
