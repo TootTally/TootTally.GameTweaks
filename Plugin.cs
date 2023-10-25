@@ -356,6 +356,34 @@ namespace TootTally.GameTweaks
 
             }
 
+            private static decimal _preciseNoteHolderPosition;
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Start))]
+            [HarmonyPostfix]
+
+            public static void GetNoteHolderStartPosition(GameController __instance)
+            {
+                _preciseNoteHolderPosition = (decimal)__instance.noteholderr.anchoredPosition3D.x;
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.syncTrackPositions))]
+            [HarmonyPostfix]
+            public static void SyncPreciseNoteHolder(float track_time, GameController __instance)
+            {
+                _preciseNoteHolderPosition = (decimal)(__instance.zeroxpos + track_time * -__instance.trackmovemult);
+            }
+
+            [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
+            [HarmonyPostfix]
+            public static void FixNoteHolderPosition(GameController __instance)
+            {
+                if (__instance.smooth_scrolling && !__instance.paused && __instance.musictrack.time > 0f)
+                {
+                    _preciseNoteHolderPosition -= (decimal)(Time.deltaTime * __instance.trackmovemult * __instance.smooth_scrolling_move_mult * __instance.smooth_scrolling_mod_mult);
+                    __instance.noteholderr.anchoredPosition3D = new Vector3((float)_preciseNoteHolderPosition,0f);
+                }
+            }
+
             [HarmonyPatch(typeof(GameController), nameof(GameController.activateNextNote))]
             [HarmonyPrefix]
             private static bool SkipFirstActivateNextNote(object[] __args) => (int)__args[0] != 1;
@@ -365,7 +393,6 @@ namespace TootTally.GameTweaks
             private static void buildNotes(GameController __instance)
             {
                 _noteInitIndex = 0;
-                _previousNote = null;
                 for (int i = 0; i < _noteArray.Length && _noteInitIndex < __instance.leveldata.Count; i++)
                 {
                     BuildSingleNote(__instance, i);
@@ -383,7 +410,6 @@ namespace TootTally.GameTweaks
             }
 
 
-            private static GameObject _previousNote;
             private static void BuildSingleNote(GameController __instance, int index)
             {
                 float[] previousNoteData = new float[]
@@ -416,9 +442,10 @@ namespace TootTally.GameTweaks
                     noteData[1] = 0.015f;
                     __instance.leveldata[index][1] = 0.015f;
                 }
-                GameObject currentNote = _previousNote ?? _noteArray[index % _noteArray.Length];
 
+                GameObject currentNote = _noteArray[index % _noteArray.Length];
                 LeanTween.cancel(currentNote);
+                currentNote.transform.localScale = Vector3.one;
                 __instance.allnotes.Add(currentNote);
                 NoteDesigner noteDesigner = currentNote.GetComponent<NoteDesigner>();
                 if (previousNoteIsSlider)
@@ -517,7 +544,6 @@ namespace TootTally.GameTweaks
                 {
                     currentNote.SetActive(false);
                 }
-                _previousNote = _noteArray[index % _noteArray.Length];
                 _noteInitIndex++;
             }
 
