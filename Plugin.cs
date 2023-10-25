@@ -332,7 +332,7 @@ namespace TootTally.GameTweaks
                 return false;
             }
 
-            private static GameObject[] _noteArray;
+            private static NoteStructure[] _noteArray;
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.buildNotes))]
             [HarmonyPrefix]
@@ -370,7 +370,8 @@ namespace TootTally.GameTweaks
             [HarmonyPostfix]
             public static void SyncPreciseNoteHolder(float track_time, GameController __instance)
             {
-                _preciseNoteHolderPosition = (decimal)(__instance.zeroxpos + track_time * -__instance.trackmovemult);
+                if (SyncOnlyOnce())
+                    _preciseNoteHolderPosition = (decimal)(__instance.zeroxpos + track_time * -__instance.trackmovemult);
             }
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
@@ -401,11 +402,10 @@ namespace TootTally.GameTweaks
 
             private static void BuildNoteArray(GameController __instance, int size)
             {
-                _noteArray = new GameObject[size];
+                _noteArray = new NoteStructure[size];
                 for (int i = 0; i < size; i++)
                 {
-                    _noteArray[i] = GameObject.Instantiate<GameObject>(__instance.singlenote, new Vector3(0f, 0f, 0f), Quaternion.identity, __instance.noteholder.transform);
-                    _noteArray[i].SetActive(true);
+                    _noteArray[i] = new NoteStructure(GameObject.Instantiate<GameObject>(__instance.singlenote, new Vector3(0f, 0f, 0f), Quaternion.identity, __instance.noteholder.transform));
                 }
             }
 
@@ -420,90 +420,55 @@ namespace TootTally.GameTweaks
                     0f,
                     9999f
                 };
-                GameObject previousNote = null;
                 if (index > 0)
-                {
                     previousNoteData = __instance.leveldata[index - 1];
-                    previousNote = __instance.allnotes[index - 1];
-                }
+
                 float[] noteData = __instance.leveldata[index];
-                bool previousNoteIsSlider = false;
-                if (Mathf.Abs(previousNoteData[0] + previousNoteData[1] - noteData[0]) < 0.01f)
-                {
-                    previousNoteIsSlider = true;
-                }
+                bool previousNoteIsSlider = Mathf.Abs(previousNoteData[0] + previousNoteData[1] - noteData[0]) < 0.01f;
                 bool isTapNote = noteData[1] <= 0.0625f && __instance.tempo > 50f && noteData[3] == 0f && !previousNoteIsSlider;
                 if (noteData[1] <= 0f)
                 {
                     noteData[1] = 0.015f;
                     __instance.leveldata[index][1] = 0.015f;
                 }
-                GameObject currentNote = _noteArray[index % _noteArray.Length];
-                LeanTween.cancel(currentNote);
-                currentNote.transform.localScale = Vector3.one;
-                __instance.allnotes.Add(currentNote);
-                NoteDesigner noteDesigner = currentNote.GetComponent<NoteDesigner>();
+                NoteStructure currentNote = _noteArray[index % _noteArray.Length];
+                currentNote.CancelLeanTweens();
+                currentNote.root.transform.localScale = Vector3.one;
+                __instance.allnotes.Add(currentNote.root);
                 __instance.flipscheme = previousNoteIsSlider && !__instance.flipscheme;
 
-                if (!__instance.flipscheme)
+                currentNote.SetColorScheme(__instance.note_c_start, __instance.note_c_end, __instance.flipscheme);
+
+                if (index > 0)
                 {
-                    noteDesigner.setColorScheme(
-                    __instance.note_c_start[0],
-                    __instance.note_c_start[1],
-                    __instance.note_c_start[2],
-                    __instance.note_c_end[0],
-                    __instance.note_c_end[1],
-                    __instance.note_c_end[2]);
-                }
-                else if (__instance.flipscheme)
-                {
-                    noteDesigner.setColorScheme(
-                    __instance.note_c_end[0],
-                    __instance.note_c_end[1],
-                    __instance.note_c_end[2],
-                    __instance.note_c_start[0],
-                    __instance.note_c_start[1],
-                    __instance.note_c_start[2]);
+                    __instance.allnotes[index - 1].transform.GetChild(1).gameObject.SetActive(!previousNoteIsSlider); //End of previous note
+                    currentNote.noteStart.SetActive(!previousNoteIsSlider);
                 }
 
-                RectTransform currentNoteRect = currentNote.GetComponent<RectTransform>();
-                GameObject currentNoteStart = currentNote.transform.GetChild(0).gameObject;
-
-                previousNote.transform.GetChild(1).gameObject.SetActive(!previousNoteIsSlider); //End of previous note
-                currentNoteStart.SetActive(!previousNoteIsSlider);
-
-                GameObject currentNoteEnd = currentNote.transform.GetChild(1).gameObject;
-                RectTransform noteEndRect = currentNoteEnd.GetComponent<RectTransform>();
-                currentNoteRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
-
-                currentNoteEnd.SetActive(!isTapNote);
+                currentNote.endRect.anchoredPosition3D = new Vector3(noteData[0] * __instance.defaultnotelength, noteData[2], 0f);
+                currentNote.noteEnd.SetActive(!isTapNote);
 
                 if (!isTapNote)
                 {
-                    noteEndRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
+                    currentNote.endRect.anchoredPosition3D = new Vector3(__instance.defaultnotelength * noteData[1] - __instance.levelnotesize + 11.5f, noteData[3], 0f);
                     if (_noteInitIndex >= TrombLoader.Plugin.Instance.beatsToShow.Value)
                     {
-                        noteEndRect.anchorMin = noteEndRect.anchorMax = new Vector2(1, .5f);
-                        noteEndRect.pivot = new Vector2(0.34f, 0.5f);
+                        currentNote.endRect.anchorMin = currentNote.endRect.anchorMax = new Vector2(1, .5f);
+                        currentNote.endRect.pivot = new Vector2(0.34f, 0.5f);
                     }
                 }
                 float[] noteVal = new float[]
                 {
-                        noteData[0] * __instance.defaultnotelength,
-                        noteData[0] * __instance.defaultnotelength + __instance.defaultnotelength * noteData[1],
-                        noteData[2],
-                        noteData[3],
-                        noteData[4]
+                    noteData[0] * __instance.defaultnotelength,
+                    noteData[0] * __instance.defaultnotelength + __instance.defaultnotelength * noteData[1],
+                    noteData[2],
+                    noteData[3],
+                    noteData[4]
                 };
                 __instance.allnotevals.Add(noteVal);
                 float notePosition = __instance.defaultnotelength * noteData[1];
                 float pitchDelta = noteData[3];
-                LineRenderer[] lineRenderers = new LineRenderer[]
-                {
-                    currentNote.transform.GetChild(2).GetComponent<LineRenderer>(),
-                    currentNote.transform.GetChild(3).GetComponent<LineRenderer>()
-                };
-                foreach (LineRenderer lineRenderer in lineRenderers)
+                foreach (LineRenderer lineRenderer in currentNote.lineRenderers)
                 {
                     lineRenderer.gameObject.SetActive(!isTapNote);
                     if (isTapNote) continue;
@@ -521,17 +486,13 @@ namespace TootTally.GameTweaks
                         for (int k = 1; k < sliderSampleCount; k++)
                         {
                             lineRenderer.SetPosition(k,
-                                new Vector3(
-                                notePosition / (sliderSampleCount - 1) * k,
-                                __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1),
-                                0f));
+                            new Vector3(
+                            notePosition / (sliderSampleCount - 1) * k,
+                            __instance.easeInOutVal(k, 0f, pitchDelta, sliderSampleCount - 1),
+                            0f));
                         }
                     }
 
-                }
-                if (index > __instance.beatstoshow && !__instance.leveleditor)
-                {
-                    currentNote.SetActive(false);
                 }
                 _noteInitIndex++;
             }
