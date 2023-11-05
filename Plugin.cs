@@ -58,8 +58,7 @@ namespace TootTally.GameTweaks
         public void LoadModule()
         {
             string configPath = Path.Combine(Paths.BepInExRootPath, "config/");
-            ConfigFile config = new ConfigFile(configPath + CONFIG_NAME, true);
-            config.SaveOnConfigSet = true;
+            ConfigFile config = new ConfigFile(configPath + CONFIG_NAME, true) { SaveOnConfigSet = true };
             option = new Options()
             {
                 ChampMeterSize = config.Bind("General", "ChampMeterSize", 1f, "Resize the champ meter to make it less intrusive."),
@@ -71,7 +70,7 @@ namespace TootTally.GameTweaks
                 OverwriteNoteSpacing = config.Bind("NoteSpacing", "OverwriteNoteSpacing", false, "Make the note spacing always the same."),
                 NoteSpacing = config.Bind("NoteSpacing", "NoteSpacing", 280.ToString(), "Note Spacing Value"),
                 SkipCardAnimation = config.Bind("Misc", "SkipCardAnimation", true, "Skip the animation when opening cards."),
-                IncreaseTromboneRange = config.Bind("Misc", "IncreaseTromboneRange", false, "Increase the range of notes the trombone can play."),
+                RemoveLyrics = config.Bind("Misc", "RemoveLyrics", false, "Remove Lyrics from songs."),
                 OptimizeGame = config.Bind("Misc", "OptimizeGame", false, "Instantiate and destroy notes as they enter and leave the screen."),
                 SliderSamplePoints = config.Bind("Misc", "SliderSamplePoints", 8f, "Increase or decrease the quality of slides."),
                 RememberMyBoner = config.Bind("RMB", "RememberMyBoner", true, "Remembers the things you selected in the character selection screen."),
@@ -91,7 +90,7 @@ namespace TootTally.GameTweaks
             settingPage?.AddToggle("TouchScreenMode", option.TouchScreenMode, (value) => GlobalVariables.localsettings.mousecontrolmode = value ? 0 : 1);
             settingPage?.AddToggle("SkipCardAnimation", option.SkipCardAnimation);
             settingPage?.AddToggle("OverwriteNoteSpacing", option.OverwriteNoteSpacing, OnOverwriteNoteSpacingToggle);
-            settingPage?.AddToggle("IncreaseTromboneRange", option.IncreaseTromboneRange);
+            settingPage?.AddToggle("RemoveLyrics", option.RemoveLyrics);
             settingPage?.AddToggle("OptimizeGame", option.OptimizeGame, OnOptimizeGameToggle);
             OnOptimizeGameToggle(option.OptimizeGame.Value);
             settingPage?.AddToggle("RememberMyBoner", option.RememberMyBoner);
@@ -259,80 +258,9 @@ namespace TootTally.GameTweaks
                 return __instance.multipurchase_opened_sacks >= __instance.multipurchase_chosenpacks;
             }
 
-            private const float semitone = 13.75f;
-            private static Dictionary<float, AudioClip> _posToClipDict;
-
-            [HarmonyPatch(typeof(GameController), nameof(GameController.loadSoundBundleResources))]
-            [HarmonyPostfix]
-            public static void SetLinePos(GameController __instance)
-            {
-                if (!Instance.option.IncreaseTromboneRange.Value) return;
-                string folderPath = Path.Combine(Path.GetDirectoryName(Instance.Info.Location), "AudioClips");
-
-                Plugin.Instance.StartCoroutine(LoadAudioClip(folderPath, clips => { __instance.trombclips.tclips = clips.ToArray(); OnClipsLoaded(__instance); }));
-            }
-
-            public static void OnClipsLoaded(GameController __instance)
-            {
-                var clipCount = __instance.trombclips.tclips.Length;
-
-                _posToClipDict = new Dictionary<float, AudioClip>(clipCount);
-
-                var value = (clipCount - (clipCount % 12)) * -semitone;
-                for (int i = 0; i < clipCount; i++)
-                {
-                    _posToClipDict.Add(value, __instance.trombclips.tclips[i]);
-                    var mod = i % 7;
-                    if (mod == 2 || mod == 6)
-                        value += semitone;
-                    else
-                        value += semitone * 2f;
-                }
-            }
-            public static readonly List<char> notesLetters = new List<char> { 'C', 'D', 'E', 'F', 'G', 'A', 'B' };
-            public static IEnumerator<UnityWebRequestAsyncOperation> LoadAudioClip(string folderPath, Action<List<AudioClip>> callback)
-            {
-                List<AudioClip> audioClips = new List<AudioClip>();
-
-                var orderedFiles = Directory.GetFiles(folderPath).OrderBy(x => Path.GetFileNameWithoutExtension(x)[0], new NoteComparer()).OrderBy(x => Path.GetFileNameWithoutExtension(x)[1]);
-                foreach (string f in orderedFiles)
-                {
-                    Plugin.Instance.LogInfo(f);
-                    UnityWebRequest webRequest = UnityWebRequestMultimedia.GetAudioClip(f, AudioType.WAV);
-                    yield return webRequest.SendWebRequest();
-                    if (!webRequest.isNetworkError && !webRequest.isHttpError)
-                        audioClips.Add(DownloadHandlerAudioClip.GetContent(webRequest));
-                }
-
-                if (audioClips.Count > 0)
-                    callback(audioClips);
-            }
-
-            public class NoteComparer : IComparer<char>
-            {
-                public int Compare(char x, char y)
-                {
-                    if (notesLetters.FindIndex(l => l == x) < notesLetters.FindIndex(l => l == y)) return -1;
-                    if (notesLetters.FindIndex(l => l == x) > notesLetters.FindIndex(l => l == y)) return 1;
-                    return 0;
-                }
-            }
-
-            [HarmonyPatch(typeof(GameController), nameof(GameController.playNote))]
+            [HarmonyPatch(typeof(GameController), nameof(GameController.buildAllLyrics))]
             [HarmonyPrefix]
-            public static bool OverwritePlayNote(GameController __instance)
-            {
-                if (!Instance.option.IncreaseTromboneRange.Value) return true;
-
-                var pointerY = __instance.pointer.transform.localPosition.y;
-                var clipPair = _posToClipDict.Aggregate((x, y) => Math.Abs(x.Key - pointerY) < Math.Abs(y.Key - pointerY) ? x : y);
-
-                __instance.notestartpos = clipPair.Key;
-                __instance.currentnotesound.clip = clipPair.Value;
-                __instance.currentnotesound.Play();
-
-                return false;
-            }
+            public static bool OverwriteBuildAllLyrics() => !Instance.option.RemoveLyrics.Value;
 
             private static NoteStructure[] _noteArray;
 
@@ -357,7 +285,7 @@ namespace TootTally.GameTweaks
                 if (!Instance.option.OptimizeGame.Value) return;
                 if (_noteInitIndex < __instance.leveldata.Count)
                 {
-                    _currentCoroutines.Enqueue(Instance.StartCoroutine(TootTallyAPIService.WaitForSecondsCallback(.1f,
+                    _currentCoroutines.Enqueue(Instance.StartCoroutine(WaitForSecondsCallback(.1f,
                         delegate {
                             _currentCoroutines.Dequeue();
                             BuildSingleNote(__instance, _noteInitIndex);
@@ -365,6 +293,13 @@ namespace TootTally.GameTweaks
                 }
 
             }
+
+            public static IEnumerator<WaitForSeconds> WaitForSecondsCallback(float seconds, Action callback)
+            {
+                yield return new WaitForSeconds(seconds);
+                callback();
+            }
+
 
             [HarmonyPatch(typeof(PointSceneController), nameof(PointSceneController.Start))]
             [HarmonyPostfix]
@@ -376,34 +311,13 @@ namespace TootTally.GameTweaks
                 };
             }
 
-            private static decimal _preciseNoteHolderPosition;
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.Start))]
             [HarmonyPostfix]
 
-            public static void GetNoteHolderStartPosition(GameController __instance)
+            public static void GetNoteHolderStartPosition()
             {
                 _currentCoroutines = new Queue<Coroutine>();
-                _preciseNoteHolderPosition = (decimal)__instance.noteholderr.anchoredPosition3D.x;
-            }
-
-            [HarmonyPatch(typeof(GameController), nameof(GameController.syncTrackPositions))]
-            [HarmonyPostfix]
-            public static void SyncPreciseNoteHolder(float track_time, GameController __instance)
-            {
-                if (SyncOnlyOnce())
-                    _preciseNoteHolderPosition = (decimal)(__instance.zeroxpos + track_time * -__instance.trackmovemult);
-            }
-
-            [HarmonyPatch(typeof(GameController), nameof(GameController.Update))]
-            [HarmonyPostfix]
-            public static void FixNoteHolderPosition(GameController __instance)
-            {
-                if (__instance.smooth_scrolling && !__instance.paused && __instance.musictrack.time > 0f)
-                {
-                    _preciseNoteHolderPosition -= (decimal)(Time.deltaTime * __instance.trackmovemult * __instance.smooth_scrolling_move_mult * __instance.smooth_scrolling_mod_mult);
-                    __instance.noteholderr.anchoredPosition3D = new Vector3((float)_preciseNoteHolderPosition, 0f);
-                }
             }
 
             [HarmonyPatch(typeof(GameController), nameof(GameController.activateNextNote))]
@@ -585,7 +499,7 @@ namespace TootTally.GameTweaks
             public ConfigEntry<string> NoteSpacing { get; set; }
             public ConfigEntry<bool> HideTromboner { get; set; }
             public ConfigEntry<bool> SkipCardAnimation { get; set; }
-            public ConfigEntry<bool> IncreaseTromboneRange { get; set; }
+            public ConfigEntry<bool> RemoveLyrics { get; set; }
             public ConfigEntry<bool> OptimizeGame { get; set; }
             public ConfigEntry<float> SliderSamplePoints { get; set; }
             public ConfigEntry<bool> RememberMyBoner { get; set; }
